@@ -1,0 +1,279 @@
+# # /var/www/E2C/docker-compose.yml
+
+# networks:
+#   proxy: {}
+#   wpnet: {}
+
+# volumes:
+#   db_data:
+#   wp_data:
+#   traefik_letsencrypt:
+
+# services:
+#   traefik:
+#     image: traefik:v3.1
+#     container_name: traefik
+#     restart: unless-stopped
+#     command:
+#       - --api.dashboard=true
+#       - --providers.docker=true
+#       - --providers.docker.exposedbydefault=false
+#       - --entrypoints.web.address=:80
+#       - --entrypoints.websecure.address=:443
+#       - --certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL}
+#       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+#       - --certificatesresolvers.le.acme.httpchallenge=true
+#       - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+#       - --entrypoints.web.http.redirections.entrypoint.to=websecure
+#       - --entrypoints.web.http.redirections.entrypoint.permanent=true
+#     ports:
+#       - "80:80"
+#       - "443:443"
+#     volumes:
+#       - traefik_letsencrypt:/letsencrypt
+#       - /var/run/docker.sock:/var/run/docker.sock:ro
+#     networks: [proxy]
+
+#   db:
+#     image: mariadb:11.4
+#     container_name: wp_mariadb
+#     restart: unless-stopped
+#     environment:
+#       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+#       MYSQL_DATABASE: ${MYSQL_DATABASE}
+#       MYSQL_USER: ${MYSQL_USER}
+#       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+#     volumes:
+#       - db_data:/var/lib/mysql
+#     networks: [wpnet]
+
+
+#   wordpress:
+#     build:
+#       context: ./wordpress
+#     image: custom-wordpress:apache
+#     container_name: wp_app
+#     depends_on:
+#       db:
+#         condition: service_started
+#     restart: unless-stopped
+#     environment:
+#       WORDPRESS_DB_HOST: db:3306
+#       WORDPRESS_DB_USER: ${MYSQL_USER}
+#       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+#       WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+#       WORDPRESS_CONFIG_EXTRA: |
+#         define( 'DISALLOW_FILE_EDIT', true );
+#         define( 'WP_ENVIRONMENT_TYPE', 'production' );
+#         define( 'WP_HOME', 'https://${DOMAIN}' );
+#         define( 'WP_SITEURL', 'https://${DOMAIN}' );
+#         @ini_set( 'upload_max_filesize', '10M' );
+#         @ini_set( 'post_max_size', '10M' );
+#     volumes:
+#       - wp_data:/var/www/html
+#     networks: [wpnet, proxy]
+#     labels:
+#       - "traefik.enable=true"
+#       - "traefik.http.routers.wp.rule=Host(`${DOMAIN}`)"
+#       - "traefik.http.routers.wp.entrypoints=websecure"
+#       - "traefik.http.routers.wp.tls.certresolver=le"
+#       - "traefik.http.services.wp.loadbalancer.server.port=80"
+
+#   phpmyadmin:
+#     image: phpmyadmin:latest
+#     container_name: wp_phpmyadmin
+#     restart: unless-stopped
+#     depends_on:
+#       db:
+#         condition: service_started
+#     environment:
+#       PMA_HOST: db
+#       PMA_PORT: 3306
+#     networks: [wpnet, proxy]
+#     labels:
+#       - "traefik.enable=true"
+#       - "traefik.http.routers.pma.rule=Host(`${PMA_DOMAIN}`)"
+#       - "traefik.http.routers.pma.entrypoints=websecure"
+#       - "traefik.http.routers.pma.tls.certresolver=le"
+#       - "traefik.http.services.pma.loadbalancer.server.port=80"
+#       - "traefik.http.routers.pma.middlewares=pma-auth"
+#       - "traefik.http.middlewares.pma-auth.basicauth.users=${PMA_BASIC_AUTH}"
+# /var/www/E2C/docker-compose.yml
+
+networks:
+  proxy: {}
+  wpnet: {}
+
+volumes:
+  db_data:
+  wp_data:
+  traefik_letsencrypt:
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # Dashboard local uniquement (ne pas publier de route)
+      - --api.dashboard=true
+
+      # Provider Docker
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+
+      # EntryPoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+
+      # (Optionnel) HTTP/3 en v3: ACTIF ici, proprement
+      - --entrypoints.websecure.http3=true
+
+      # ACME / Let's Encrypt (HTTP-01 sur :80)
+      - --certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+
+      # Redirection HTTP -> HTTPS
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+    ports:
+      - "80:80"
+      - "443:443"
+      # nécessaire pour HTTP/3 (QUIC)
+      - "443:443/udp"
+    volumes:
+      - traefik_letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [proxy]
+
+  db:
+    image: mariadb:11.4
+    container_name: wp_mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb_buffer_pool_size=512M
+      - --innodb_log_file_size=256M
+      - --innodb_flush_method=O_DIRECT
+      - --max_connections=100
+    volumes:
+      - db_data:/var/lib/mysql
+    networks: [wpnet]
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: wp_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [wpnet]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  wordpress:
+    build:
+      context: ./wordpress
+    image: custom-wordpress:apache
+    container_name: wp_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+      # WP config additionnels
+      WORDPRESS_CONFIG_EXTRA: |
+        define( 'DISALLOW_FILE_EDIT', true );
+        define( 'WP_ENVIRONMENT_TYPE', 'production' );
+        define( 'WP_HOME', 'https://${DOMAIN}' );
+        define( 'WP_SITEURL', 'https://${DOMAIN}' );
+        define( 'WP_CACHE', true );
+        define( 'WP_REDIS_HOST', 'redis' );
+        define( 'WP_REDIS_PORT', 6379 );
+        define( 'WP_REDIS_DATABASE', 1 );
+        define( 'WP_REDIS_TIMEOUT', 1.0 );
+        @ini_set( 'upload_max_filesize', '10M' );
+        @ini_set( 'post_max_size', '10M' );
+      # vrai cron externe
+      DISABLE_WP_CRON: "1"
+    volumes:
+      - wp_data:/var/www/html
+    networks: [wpnet, proxy]
+    labels:
+      - "traefik.enable=true"
+      # ROUTE WordPress
+      - "traefik.http.routers.wp.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.wp.entrypoints=websecure"
+      - "traefik.http.routers.wp.tls.certresolver=le"
+      # Service backend (Apache écoute en 80 dans le conteneur)
+      - "traefik.http.services.wp.loadbalancer.server.port=80"
+      # Middlewares (compression + security headers)
+      - "traefik.http.middlewares.wp-compress.compress=true"
+      - "traefik.http.middlewares.wp-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.wp-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.wp-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.wp-headers.headers.browserXssFilter=true"
+      - "traefik.http.routers.wp.middlewares=wp-compress,wp-headers"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/wp-login.php >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Déclenche wp-cron côté réseau interne (sans impacter les visiteurs)
+  cron:
+    image: curlimages/curl:8.10.1
+    container_name: wp_cron
+    restart: unless-stopped
+    depends_on:
+      wordpress:
+        condition: service_started
+    command: >
+      /bin/sh -c 'while true; do
+        curl -fsS http://wordpress/wp-cron.php?doing_wp_cron=1 >/dev/null 2>&1 || true;
+        sleep 60;
+      done'
+    networks: [wpnet]
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: wp_phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+    networks: [wpnet, proxy]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pma.rule=Host(`${PMA_DOMAIN}`)"
+      - "traefik.http.routers.pma.entrypoints=websecure"
+      - "traefik.http.routers.pma.tls.certresolver=le"
+      - "traefik.http.services.pma.loadbalancer.server.port=80"
+      # Protection basique de / (modifie PMA_BASIC_AUTH dans .env)
+      - "traefik.http.routers.pma.middlewares=pma-auth"
+      - "traefik.http.middlewares.pma-auth.basicauth.users=${PMA_BASIC_AUTH}"
